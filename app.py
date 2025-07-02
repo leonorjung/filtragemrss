@@ -2,15 +2,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
 import re
-import subprocess
-import os
 import html
 
 # Language translations
 TRANSLATIONS = {
     'en': {
-        'title': 'Articles about games classified in Communications QUALIS',
-        'subtitle': 'A monthly updated compilation of articles about games published in journals classified in the 2017–2020 QUALIS ranking for Communication. The search is conducted through RSS feeds and filtered by AI, so some relevant articles may be missing.',
+        'title': '📚 Academic Articles Browser',
+        'subtitle': 'Browse and search academic articles from the research database',
         'language': 'Language',
         'filters_search': '🔍 Filters & Search',
         'search_placeholder': 'Enter keywords...',
@@ -51,14 +49,11 @@ TRANSLATIONS = {
         'csv_location': '- The CSV file should be named \'data.csv\' and located in the repository',
         'expected_columns': '- Expected columns: title, journal, date, abstract, qualis classification, link',
         'separator_info': '- The file should use semicolon (;) as separator',
-        'recently_added': 'Recently Added',
-        'show_recent_only': 'Show only recently added articles',
-        'days_threshold': 'Consider articles added in the last {days} days as recent',
-        'recent_badge': '🆕 NEW'
+
     },
     'pt': {
-        'title': 'Artigos sobre jogos no QUALIS de Comunicação',
-        'subtitle': 'Compilado atualizado mensalmente de artigos sobre jogos publicados em periódicos classificados no QUALIS 2017-2020 de Comunicação. A busca é feita em feeds de RSS e filtrada por IA, então é possível que os resultados deixem alguns artigos de fora.',
+        'title': '📚 Navegador de Artigos Acadêmicos',
+        'subtitle': 'Navegue e pesquise artigos acadêmicos da base de dados de pesquisa',
         'language': 'Idioma',
         'filters_search': '🔍 Filtros e Pesquisa',
         'search_placeholder': 'Digite palavras-chave...',
@@ -99,10 +94,7 @@ TRANSLATIONS = {
         'csv_location': '- O arquivo CSV deve se chamar \'data.csv\' e estar localizado no repositório',
         'expected_columns': '- Colunas esperadas: title, journal, date, abstract, qualis classification, link',
         'separator_info': '- O arquivo deve usar ponto e vírgula (;) como separador',
-        'recently_added': 'Adicionados Recentemente',
-        'show_recent_only': 'Mostrar apenas artigos adicionados recentemente',
-        'days_threshold': 'Considerar artigos adicionados nos últimos {days} dias como recentes',
-        'recent_badge': '🆕 NOVO'
+
     }
 }
 
@@ -134,47 +126,7 @@ def sanitize_html(text):
     
     return clean_text
 
-def get_file_modification_dates():
-    """Get the modification dates from Git history for data.csv"""
-    try:
-        # Check if we're in a git repository
-        if not os.path.exists('.git'):
-            return None
-        
-        # Get the Git log for data.csv to see when it was last modified
-        cmd = ['git', 'log', '--follow', '--format=%ct', '--', 'data.csv']
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
-        if result.returncode == 0 and result.stdout.strip():
-            # Get the most recent modification timestamp
-            timestamps = result.stdout.strip().split('\n')
-            if timestamps:
-                latest_timestamp = int(timestamps[0])
-                return datetime.fromtimestamp(latest_timestamp)
-        return None
-        
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError, FileNotFoundError):
-        return None
 
-def is_recently_added(days_threshold=7):
-    """Check if the data.csv file was modified recently"""
-    modification_date = get_file_modification_dates()
-    if modification_date is None:
-        return False
-    
-    current_date = datetime.now()
-    time_diff = current_date - modification_date
-    return time_diff.days <= days_threshold
-
-def add_recent_indicators(df, days_threshold=7):
-    """Add indicators for recently added articles based on Git history"""
-    recent_modification = is_recently_added(days_threshold)
-    
-    # For simplicity, if the file was recently modified, mark all articles as potentially recent
-    # In a more sophisticated implementation, you could track individual row additions
-    df['is_recent'] = recent_modification
-    
-    return df
 
 # Page configuration
 st.set_page_config(
@@ -259,7 +211,7 @@ def clean_and_validate_data(df):
     except Exception as e:
         return None, f"Error cleaning data: {str(e)}"
 
-def filter_articles(df, search_term, date_range, journal_classifications, sort_by, sort_order, show_recent_only=False):
+def filter_articles(df, search_term, date_range, journal_classifications, sort_by, sort_order):
     """
     Filter and sort articles based on user inputs
     """
@@ -286,10 +238,6 @@ def filter_articles(df, search_term, date_range, journal_classifications, sort_b
     if journal_classifications and 'qualis_classification' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['qualis_classification'].isin(journal_classifications)]
     
-    # Recent articles filter
-    if show_recent_only and 'is_recent' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['is_recent'] == True]
-    
     # Sorting
     if sort_by in filtered_df.columns:
         ascending = (sort_order == "Ascending")
@@ -306,16 +254,13 @@ def display_article_card(article, index, lang='en'):
     Display an individual article in a card format
     """
     with st.container():
-        # Title with link and recent badge
+        # Title with link
         title = article.get('title', get_text('no_title', lang))
-        recent_badge = ""
-        if article.get('is_recent', False):
-            recent_badge = f" {get_text('recent_badge', lang)}"
         
         if 'link' in article and article['link'] and article['link'] != get_text('not_available', lang) and article['link'].strip():
-            st.markdown(f"### [{title}]({article['link']}){recent_badge}")
+            st.markdown(f"### [{title}]({article['link']})")
         else:
-            st.markdown(f"### {title}{recent_badge}")
+            st.markdown(f"### {title}")
         
         # Journal
         journal = article.get('journal', get_text('unknown_journal', lang))
@@ -377,8 +322,6 @@ def main():
                     st.session_state.error = clean_error
                     st.session_state.data = None
                 else:
-                    # Add recent indicators based on Git history
-                    cleaned_data = add_recent_indicators(cleaned_data)
                     st.session_state.data = cleaned_data
                     st.session_state.error = None
             
@@ -451,15 +394,6 @@ def main():
         else:
             journal_classifications = []
         
-        # Recently added filter
-        st.subheader(get_text('recently_added', lang))
-        days_threshold = st.slider(
-            "Days threshold:",
-            min_value=1, max_value=30, value=7,
-            help=get_text('days_threshold', lang, days=7)
-        )
-        show_recent_only = st.checkbox(get_text('show_recent_only', lang))
-        
         # Sorting options
         st.subheader(get_text('sorting', lang))
         sort_options = []
@@ -478,17 +412,8 @@ def main():
         # Convert back to English for processing
         sort_order_en = "Descending" if sort_order == get_text('descending', lang) else "Ascending"
     
-    # Update recent indicators with current threshold
-    if 'is_recent' not in df.columns:
-        df = add_recent_indicators(df, days_threshold)
-        st.session_state.data = df
-    else:
-        # Refresh recent indicators if threshold changed
-        df = add_recent_indicators(df, days_threshold)
-        st.session_state.data = df
-    
     # Filter and display articles
-    filtered_df = filter_articles(df, search_term, date_range, journal_classifications, sort_by, sort_order_en, show_recent_only)
+    filtered_df = filter_articles(df, search_term, date_range, journal_classifications, sort_by, sort_order_en)
     
     # Results summary
     col1, col2, col3 = st.columns(3)
